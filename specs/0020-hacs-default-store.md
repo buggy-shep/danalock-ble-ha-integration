@@ -15,8 +15,8 @@ This spec covers the remaining step: inclusion in the HACS default store
 (`hacs/default`), so users find the integration without adding a custom
 repository.
 
-The compliance audit (`ha-compliance-audit`, 2026-09-11) found two P0 issues
-that must be closed before the submission:
+The compliance audit of 2026-09-11 found two P0 issues that must be closed
+before the submission:
 
 1. `manifest.json` declares a Bluetooth discovery matcher
    (`{"manufacturer_id": 456, "connectable": false}`) without a matching

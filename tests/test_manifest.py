@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from typing import Any
+
+import pytest
 
 import custom_components.danalock_ble as integration
 
@@ -28,7 +31,14 @@ def test_manifest_orders_bluetooth_setup_without_a_hard_dependency() -> None:
     assert "bluetooth" not in manifest.get("dependencies", [])
 
 
-def test_config_schema_is_config_entry_only() -> None:
-    """An integration defining async_setup must declare CONFIG_SCHEMA
-    (spec 0020 R3)."""
-    assert integration.CONFIG_SCHEMA is not None
+def test_config_schema_is_config_entry_only(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """An integration defining async_setup declares a schema that rejects
+    YAML setup (spec 0020 R3)."""
+    schema = integration.CONFIG_SCHEMA
+    assert callable(schema)
+    assert schema({}) == {}
+    with caplog.at_level(logging.ERROR):
+        assert schema({integration.DOMAIN: {}}) == {integration.DOMAIN: {}}
+    assert "does not support YAML setup" in caplog.text
