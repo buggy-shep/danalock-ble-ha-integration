@@ -33,10 +33,13 @@ resolves to the real icon, while keeping the local asset.
 
 - The HACS store currently shows a placeholder for the integration, which
   looks unfinished next to integrations that ship a brand icon.
-- HACS's own brands validator (`custom_components/hacs/validate/brands.py`,
-  used by the HACS Action) checks that the domain is present in
-  `https://brands.home-assistant.io/domains.json` under `custom`; the
-  submission makes that check meaningful for this repository.
+- The HACS 2.0.5 repository-list frontend resolves the icon through the
+  brands CDN, so the submission is what makes the icon appear in HACS. (That
+  release's bundled `validate/brands.py` checks
+  `https://brands.home-assistant.io/domains.json` under `custom`; the CI
+  action pinned at `hacs/action@main` checks the local `brand/icon.png`
+  first and only falls back to that list, so this submission does not change
+  the Action outcome.)
 - The requirement is deliberately separated from the HA quality-scale
   `brands` rule, which is already satisfied by the local
   `brand/icon.png` (Home Assistant ≥ 2026.3) and does not require a brands
@@ -56,8 +59,10 @@ resolves to the real icon, while keeping the local asset.
   add `custom_components/danalock_ble/brand/icon@2x.png` (512×512) for parity
   with the local proxy's hDPI variant.
 - R4 (MUST) The submitted images follow the brands repository image
-  specification: PNG, properly (lossless-preferred) compressed, trimmed of
-  empty edge space, transparency preferred, and:
+  specification: PNG, properly (lossless-preferred) compressed, interlacing
+  preferred, trimmed of empty edge space, transparency preferred, optimized
+  for a light background (dark-optimized variants use the `dark_` prefix and
+  are optional), and:
   - `icon.png` 1:1 aspect ratio at 256×256,
   - `icon@2x.png` 1:1 aspect ratio at 512×512.
 - R5 (MUST) The assets must not use Home Assistant branded imagery (the
@@ -101,8 +106,9 @@ Two independent icon paths exist and must not be conflated:
   `domains.json` `custom` list is generated from that directory, so no manual
   `domains.json` edit is part of the PR.
 - The brands repository CI validates image dimensions/format. The domain must
-  not collide with a core integration (it does not; only `danalock_cloud`
-  exists in `custom_integrations/`, which is a different domain).
+  not collide with a core integration (it does not; `custom_integrations/`
+  holds thousands of unrelated custom domains and, among Danalock-named
+  domains, only the different domain `danalock_cloud` is registered).
 - Optional logo files are not required: if the artwork is square, icon images
   suffice and the icon is served as the logo fallback. Submit `logo*.png`
   only if a distinct landscape logo exists.
