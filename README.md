@@ -5,6 +5,7 @@
 <!-- prettier-ignore-start -->
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg?style=for-the-badge)](https://hacs.xyz/docs/publish/start)
 [![Latest release](https://img.shields.io/github/v/release/buggy-shep/danalock-ble-ha-integration?style=for-the-badge)](https://github.com/buggy-shep/danalock-ble-ha-integration/releases)
+[![Installs](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fanalytics.home-assistant.io%2Fcustom_integrations.json&query=%24.danalock_ble.total&style=for-the-badge&label=installs&color=41BDF5)](https://analytics.home-assistant.io/#integrations)
 [![CI](https://img.shields.io/github/actions/workflow/status/buggy-shep/danalock-ble-ha-integration/validate.yml?branch=master&style=for-the-badge)](https://github.com/buggy-shep/danalock-ble-ha-integration/actions/workflows/validate.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](LICENSE)
 [![Issues](https://img.shields.io/github/issues/buggy-shep/danalock-ble-ha-integration?style=for-the-badge)](https://github.com/buggy-shep/danalock-ble-ha-integration/issues)
