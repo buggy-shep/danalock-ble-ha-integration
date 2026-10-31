@@ -6,8 +6,10 @@ from typing import Any
 
 import httpx
 import pytest
+from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.danalock_ble.const import (
     CONF_PROXY_HOST,
@@ -28,6 +30,7 @@ from tests.conftest import (
     CloudHandler,
     patch_cloud_transport,
     setup_entry,
+    stage_pending_tokens,
 )
 from tests.test_config_flow import submit, submit_options
 
@@ -131,6 +134,9 @@ def test_bracketed_ipv6_proxy_host_is_accepted() -> None:
         "bad host",
         "-proxy.example.com",
         "proxy.example.com:3128",
+        "proxy@example.com",
+        "proxy.example.com?x=1",
+        "proxy.example.com#fragment",
     ],
 )
 def test_invalid_proxy_host_is_rejected(host: str) -> None:
@@ -353,6 +359,47 @@ async def test_reauth_uses_stored_proxy(
     assert result["reason"] == "reauth_successful"
     assert recorder.proxies[-1] is not None
     assert str(recorder.proxies[-1].url) == "http://proxy.example.com:3128"
+
+
+async def test_reauth_with_invalid_stored_proxy_shows_error(
+    hass: HomeAssistant,
+) -> None:
+    """A corrupted stored proxy is reported instead of crashing the flow."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id=USERNAME,
+        data={"username": USERNAME},
+        title=USERNAME,
+        options=proxy_values(**{CONF_PROXY_HOST: "http://proxy.example.com"}),
+    )
+    entry.add_to_hass(hass)
+
+    result = await entry.start_reauth_flow(hass)
+    result = await submit(hass, result, {"username": USERNAME, "password": PASSWORD})
+
+    assert result["type"] == FlowResultType.FORM
+    assert result["errors"] == {"base": "invalid_proxy"}
+    assert len(hass.config_entries.async_entries(DOMAIN)) == 1
+
+
+async def test_invalid_stored_proxy_blocks_setup(
+    hass: HomeAssistant,
+) -> None:
+    """A corrupted stored proxy is a setup error, not a direct connection."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id=USERNAME,
+        data={"username": USERNAME},
+        title=USERNAME,
+        options=proxy_values(**{CONF_PROXY_HOST: "http://proxy.example.com"}),
+    )
+    entry.add_to_hass(hass)
+    stage_pending_tokens(hass, USERNAME)
+
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert entry.state is ConfigEntryState.SETUP_ERROR
 
 
 async def test_reconfigure_uses_stored_proxy(

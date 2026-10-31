@@ -25,6 +25,12 @@ from homeassistant.helpers.selector import (
     TextSelectorConfig,
     TextSelectorType,
 )
+from pydanalock.cloud import (
+    AuthError,
+    DanalockCloudError,
+    MemoryTokenStorage,
+    TokenData,
+)
 
 from custom_components.danalock_ble.const import (
     CONF_PASSWORD,
@@ -45,12 +51,6 @@ from custom_components.danalock_ble.const import (
     MAX_REFRESH_PERIOD_HOURS,
     PENDING_TOKENS,
     option_refresh_hours,
-)
-from pydanalock.cloud import (
-    AuthError,
-    DanalockCloudError,
-    MemoryTokenStorage,
-    TokenData,
 )
 from custom_components.danalock_ble.proxy import (
     ProxyConfigError,
@@ -148,29 +148,25 @@ class DanalockConfigFlow(ConfigFlow, domain=DOMAIN):
             unique_id = normalized_username(username)
             try:
                 proxy_options = normalized_proxy_options(user_input)
+                proxy = proxy_from_options(proxy_options)
             except ProxyConfigError:
                 errors["base"] = "invalid_proxy"
             else:
+                await self.async_set_unique_id(unique_id)
+                self._abort_if_unique_id_configured()
                 try:
-                    proxy = proxy_from_options(proxy_options)
-                except ProxyConfigError:
-                    errors["base"] = "invalid_proxy"
+                    token = await self._async_validate(
+                        username, user_input[CONF_PASSWORD], proxy
+                    )
+                except _ValidationError as err:
+                    errors["base"] = err.base
                 else:
-                    await self.async_set_unique_id(unique_id)
-                    self._abort_if_unique_id_configured()
-                    try:
-                        token = await self._async_validate(
-                            username, user_input[CONF_PASSWORD], proxy
-                        )
-                    except _ValidationError as err:
-                        errors["base"] = err.base
-                    else:
-                        stage_pending_tokens(self.hass, unique_id, token)
-                        return self.async_create_entry(
-                            title=username,
-                            data={"username": username},
-                            options=proxy_options,
-                        )
+                    stage_pending_tokens(self.hass, unique_id, token)
+                    return self.async_create_entry(
+                        title=username,
+                        data={"username": username},
+                        options=proxy_options,
+                    )
         return self.async_show_form(
             step_id="user", data_schema=STEP_USER_DATA_SCHEMA, errors=errors
         )
@@ -261,7 +257,7 @@ class DanalockConfigFlow(ConfigFlow, domain=DOMAIN):
                 raise _ValidationError("invalid_auth") from err
             except (httpx.HTTPError, DanalockCloudError) as err:
                 raise _ValidationError("cannot_connect") from err
-            except Exception as err:  # noqa: BLE001 - surfaced as "unknown"
+            except Exception as err:
                 raise _ValidationError("unknown") from err
             if not summaries:
                 raise _ValidationError("no_keys")
