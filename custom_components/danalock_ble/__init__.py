@@ -24,7 +24,11 @@ import httpx
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
+from homeassistant.exceptions import (
+    ConfigEntryAuthFailed,
+    ConfigEntryError,
+    ConfigEntryNotReady,
+)
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.typing import ConfigType
@@ -47,6 +51,7 @@ from pydanalock.cloud import (
 )
 from pydanalock.cloud.models import serial_with_separators
 from custom_components.danalock_ble.keymanager import DanalockKeyManager
+from custom_components.danalock_ble.proxy import ProxyConfigError, proxy_from_options
 from custom_components.danalock_ble.storage import DanalockTokenStorage
 from custom_components.danalock_ble.update import async_register_firmware_check_service
 
@@ -87,15 +92,27 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     return True
 
 
-async def new_cloud_client(hass: HomeAssistant, storage: TokenStorage) -> AsyncDanalockCloud:
-    """Build the cloud client off the event loop.
+async def new_cloud_client(
+    hass: HomeAssistant,
+    storage: TokenStorage,
+    proxy: httpx.Proxy | None = None,
+) -> AsyncDanalockCloud:
+    """Build the cloud client off the event loop (spec 0026).
 
     The httpx client constructor loads the TLS trust store synchronously,
     which HA flags as a blocking call inside the event loop; the client is
-    therefore constructed in the executor.
+    therefore constructed in the executor. With a configured proxy, the
+    shared transport is created here as well so both the API and firmware
+    clients use it.
     """
+
     def _build() -> AsyncDanalockCloud:
-        return AsyncDanalockCloud(storage=storage)
+        if proxy is None:
+            return AsyncDanalockCloud(storage=storage)
+        return AsyncDanalockCloud(
+            storage=storage,
+            transport=httpx.AsyncHTTPTransport(proxy=proxy),
+        )
 
     return await hass.async_add_executor_job(_build)
 
@@ -169,12 +186,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if pending is not None:
             await storage.async_save(pending)
 
-    client = await new_cloud_client(hass, storage)
+    try:
+        proxy = proxy_from_options(entry.options)
+    except ProxyConfigError as err:
+        raise ConfigEntryError(f"Invalid HTTP proxy configuration: {err}") from err
+
+    client = await new_cloud_client(hass, storage, proxy)
     try:
         summaries = await client.devices()
         device_types = {summary.serial: summary.device_type for summary in summaries}
         supported = [
-            summary for summary in summaries if _is_supported_device(summary.device_type)
+            summary
+            for summary in summaries
+            if _is_supported_device(summary.device_type)
         ]
         for summary in summaries:
             if not _is_supported_device(summary.device_type):

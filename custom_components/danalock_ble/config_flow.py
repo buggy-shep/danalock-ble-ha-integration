@@ -1,11 +1,13 @@
 """Config flow for the Danalock Bluetooth integration (specs 0001, 0007,
-0010, 0021).
+0010, 0021, 0026).
 
 The flow validates the cloud login and key retrieval before creating the
 entry. Entry identity is the username, normalized with `strip().lower()`
 (email normalization per the HA config-flow rules); the username appears
-only in the entry unique_id, entry data, and entry title. The options flow
-configures the background key refresh (period and jitter, in hours).
+only in the entry unique_id, entry data, and entry title. The login form and
+the options flow configure the optional HTTP proxy used for cloud access;
+the options flow also configures the background key refresh (period and
+jitter, in hours).
 """
 
 from __future__ import annotations
@@ -23,12 +25,23 @@ from homeassistant.helpers.selector import (
     TextSelectorConfig,
     TextSelectorType,
 )
+from pydanalock.cloud import (
+    AuthError,
+    DanalockCloudError,
+    MemoryTokenStorage,
+    TokenData,
+)
 
 from custom_components.danalock_ble.const import (
     CONF_PASSWORD,
+    CONF_PROXY_HOST,
+    CONF_PROXY_PASSWORD,
+    CONF_PROXY_PORT,
+    CONF_PROXY_USERNAME,
     CONF_REFRESH_JITTER_HOURS,
     CONF_REFRESH_PERIOD_HOURS,
     CONF_USERNAME,
+    DEFAULT_PROXY_PORT,
     DEFAULT_REFRESH_JITTER_HOURS,
     DEFAULT_REFRESH_PERIOD_HOURS,
     DOMAIN,
@@ -39,11 +52,10 @@ from custom_components.danalock_ble.const import (
     PENDING_TOKENS,
     option_refresh_hours,
 )
-from pydanalock.cloud import (
-    AuthError,
-    DanalockCloudError,
-    MemoryTokenStorage,
-    TokenData,
+from custom_components.danalock_ble.proxy import (
+    ProxyConfigError,
+    normalized_proxy_options,
+    proxy_from_options,
 )
 from custom_components.danalock_ble.storage import DanalockTokenStorage
 
@@ -55,11 +67,38 @@ USERNAME_SELECTOR = TextSelector(
 PASSWORD_SELECTOR = TextSelector(
     TextSelectorConfig(type=TextSelectorType.PASSWORD, autocomplete="current-password")
 )
+PROXY_PASSWORD_SELECTOR = TextSelector(
+    TextSelectorConfig(type=TextSelectorType.PASSWORD, autocomplete="current-password")
+)
+
+
+def proxy_schema_fields(
+    options: Mapping[str, Any] | None = None,
+) -> dict[Any, Any]:
+    """Optional proxy fields, prefilled from an entry's options (spec 0026)."""
+    current = options or {}
+    return {
+        vol.Optional(
+            CONF_PROXY_HOST, default=str(current.get(CONF_PROXY_HOST, ""))
+        ): str,
+        vol.Optional(
+            CONF_PROXY_PORT,
+            default=current.get(CONF_PROXY_PORT, DEFAULT_PROXY_PORT),
+        ): vol.All(vol.Coerce(int), vol.Range(min=1, max=65535)),
+        vol.Optional(
+            CONF_PROXY_USERNAME, default=str(current.get(CONF_PROXY_USERNAME, ""))
+        ): str,
+        vol.Optional(
+            CONF_PROXY_PASSWORD, default=str(current.get(CONF_PROXY_PASSWORD, ""))
+        ): PROXY_PASSWORD_SELECTOR,
+    }
+
 
 STEP_USER_DATA_SCHEMA = vol.Schema(
     {
         vol.Required(CONF_USERNAME): USERNAME_SELECTOR,
         vol.Required(CONF_PASSWORD): PASSWORD_SELECTOR,
+        **proxy_schema_fields(),
     }
 )
 
@@ -93,7 +132,9 @@ class DanalockConfigFlow(ConfigFlow, domain=DOMAIN):
 
     @staticmethod
     @callback
-    def async_get_options_flow(config_entry: config_entries.ConfigEntry) -> DanalockOptionsFlow:
+    def async_get_options_flow(
+        config_entry: config_entries.ConfigEntry,
+    ) -> DanalockOptionsFlow:
         """Create the options flow handler (spec 0007 R8)."""
         return DanalockOptionsFlow()
 
@@ -105,17 +146,27 @@ class DanalockConfigFlow(ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             username = user_input[CONF_USERNAME].strip()
             unique_id = normalized_username(username)
-            await self.async_set_unique_id(unique_id)
-            self._abort_if_unique_id_configured()
             try:
-                token = await self._async_validate(
-                    username, user_input[CONF_PASSWORD]
-                )
-            except _ValidationError as err:
-                errors["base"] = err.base
+                proxy_options = normalized_proxy_options(user_input)
+                proxy = proxy_from_options(proxy_options)
+            except ProxyConfigError:
+                errors["base"] = "invalid_proxy"
             else:
-                stage_pending_tokens(self.hass, unique_id, token)
-                return self.async_create_entry(title=username, data={"username": username})
+                await self.async_set_unique_id(unique_id)
+                self._abort_if_unique_id_configured()
+                try:
+                    token = await self._async_validate(
+                        username, user_input[CONF_PASSWORD], proxy
+                    )
+                except _ValidationError as err:
+                    errors["base"] = err.base
+                else:
+                    stage_pending_tokens(self.hass, unique_id, token)
+                    return self.async_create_entry(
+                        title=username,
+                        data={"username": username},
+                        options=proxy_options,
+                    )
         return self.async_show_form(
             step_id="user", data_schema=STEP_USER_DATA_SCHEMA, errors=errors
         )
@@ -170,25 +221,34 @@ class DanalockConfigFlow(ConfigFlow, domain=DOMAIN):
                 await self.async_set_unique_id(unique_id)
                 self._abort_if_unique_id_configured()
             try:
-                token = await self._async_validate(
-                    username, user_input[CONF_PASSWORD]
-                )
-            except _ValidationError as err:
-                errors["base"] = err.base
+                proxy = proxy_from_options(entry.options)
+            except ProxyConfigError:
+                errors["base"] = "invalid_proxy"
             else:
-                return await self._async_update_after_revalidation(
-                    entry, username, token
-                )
+                try:
+                    token = await self._async_validate(
+                        username, user_input[CONF_PASSWORD], proxy
+                    )
+                except _ValidationError as err:
+                    errors["base"] = err.base
+                else:
+                    return await self._async_update_after_revalidation(
+                        entry, username, token
+                    )
         return self.async_show_form(step_id=step_id, data_schema=schema, errors=errors)
 
-    async def _async_validate(self, username: str, password: str) -> TokenData:
+    async def _async_validate(
+        self, username: str, password: str, proxy: httpx.Proxy | None
+    ) -> TokenData:
         """Run login and key retrieval with the real library.
 
         Returns the validated token pair; failures map to typed error bases
-        (spec 0001 R1). The client is always closed, also on failure.
+        (spec 0001 R1). With a configured proxy, the same transport is used
+        for the whole validation (spec 0026 R5). The client is always
+        closed, also on failure.
         """
         memory = MemoryTokenStorage()
-        client = await new_cloud_client(self.hass, memory)
+        client = await new_cloud_client(self.hass, memory, proxy)
         try:
             try:
                 await client.login_password(username, password)
@@ -197,7 +257,7 @@ class DanalockConfigFlow(ConfigFlow, domain=DOMAIN):
                 raise _ValidationError("invalid_auth") from err
             except (httpx.HTTPError, DanalockCloudError) as err:
                 raise _ValidationError("cannot_connect") from err
-            except Exception as err:  # noqa: BLE001 - surfaced as "unknown"
+            except Exception as err:
                 raise _ValidationError("unknown") from err
             if not summaries:
                 raise _ValidationError("no_keys")
@@ -234,14 +294,31 @@ class DanalockConfigFlow(ConfigFlow, domain=DOMAIN):
 
 
 class DanalockOptionsFlow(OptionsFlow):
-    """Handle the background key-refresh options (specs 0007 R8, 0010 R5)."""
+    """Handle key refresh and cloud proxy options (specs 0007, 0010, 0026)."""
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Manage the key refresh options (hours)."""
+        """Manage the key-refresh and proxy options."""
+        errors: dict[str, str] = {}
         if user_input is not None:
-            return self.async_create_entry(title="", data=user_input)
+            try:
+                proxy_options = normalized_proxy_options(user_input)
+            except ProxyConfigError:
+                errors["base"] = "invalid_proxy"
+            else:
+                return self.async_create_entry(
+                    title="",
+                    data={
+                        CONF_REFRESH_PERIOD_HOURS: user_input[
+                            CONF_REFRESH_PERIOD_HOURS
+                        ],
+                        CONF_REFRESH_JITTER_HOURS: user_input[
+                            CONF_REFRESH_JITTER_HOURS
+                        ],
+                        **proxy_options,
+                    },
+                )
         options = self.config_entry.options
         schema = vol.Schema(
             {
@@ -269,6 +346,7 @@ class DanalockOptionsFlow(OptionsFlow):
                     vol.Coerce(int),
                     vol.Range(min=0, max=MAX_REFRESH_JITTER_HOURS),
                 ),
+                **proxy_schema_fields(options),
             }
         )
-        return self.async_show_form(step_id="init", data_schema=schema)
+        return self.async_show_form(step_id="init", data_schema=schema, errors=errors)

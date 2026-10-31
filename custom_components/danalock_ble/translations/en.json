@@ -8,6 +8,7 @@
     "error": {
       "cannot_connect": "Failed to connect to the Danalock cloud.",
       "invalid_auth": "Invalid username or password.",
+      "invalid_proxy": "The HTTP proxy settings are invalid.",
       "no_keys": "No devices with keys were found on this account.",
       "unknown": "Unexpected error."
     },
@@ -39,10 +40,18 @@
       "user": {
         "data": {
           "password": "Password",
+          "proxy_host": "Proxy address (optional)",
+          "proxy_password": "Proxy password",
+          "proxy_port": "Proxy port",
+          "proxy_username": "Proxy username",
           "username": "Username"
         },
         "data_description": {
           "password": "Your Danalock cloud password. It is used once to obtain tokens and is never stored.",
+          "proxy_host": "Host name or IP address of an HTTP proxy used to reach the Danalock cloud. Leave empty to connect directly.",
+          "proxy_password": "Password for the HTTP proxy. It is stored in Home Assistant's config entry storage.",
+          "proxy_port": "TCP port of the HTTP proxy.",
+          "proxy_username": "Username for the HTTP proxy. Leave empty for a proxy without authentication.",
           "username": "The email address of your Danalock cloud account, as used in the Danalock app."
         },
         "description": "Unofficial, community-built integration. Not affiliated with, endorsed by, or sponsored by Danalock AS or Poly-Control. Use at your own risk; only control locks you own.",
@@ -51,14 +60,25 @@
     }
   },
   "options": {
+    "error": {
+      "invalid_proxy": "The HTTP proxy settings are invalid."
+    },
     "step": {
       "init": {
-        "title": "Key refresh",
+        "title": "Cloud connection and key refresh",
         "data": {
+          "proxy_host": "Proxy address (optional)",
+          "proxy_password": "Proxy password",
+          "proxy_port": "Proxy port",
+          "proxy_username": "Proxy username",
           "refresh_jitter_hours": "Random jitter added to each refresh interval (hours)",
           "refresh_period_hours": "Interval between background key refreshes (hours)"
         },
         "data_description": {
+          "proxy_host": "Host name or IP address of an HTTP proxy used to reach the Danalock cloud. Leave empty to connect directly.",
+          "proxy_password": "Password for the HTTP proxy. It is stored in Home Assistant's config entry storage.",
+          "proxy_port": "TCP port of the HTTP proxy.",
+          "proxy_username": "Username for the HTTP proxy. Leave empty for a proxy without authentication.",
           "refresh_jitter_hours": "Each refresh happens after the interval plus a random delay of up to this many hours; 0 disables the jitter.",
           "refresh_period_hours": "The keys of all devices are refreshed from the cloud this often; 0 disables the background refresh."
         }
