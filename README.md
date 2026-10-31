@@ -86,7 +86,8 @@ advertisements; control and settings use the account keys.
   cloud). Read-only: nothing is ever installed. A
   `danalock_ble.check_firmware_updates` action runs a check on demand.
 - **Cloud account linking** — log in once; keys are fetched at setup and
-  reload. The password is never stored.
+  reload. The password is never stored. An optional HTTP proxy (address,
+  port, username, password) can be configured for cloud access.
 - **Standards-based** — uses Home Assistant's Bluetooth APIs and
   `local_push`, with UI translations for English and Russian.
 
@@ -135,9 +136,10 @@ set up, so an internet connection is required.
 
 ### First setup
 
-Enter your Danalock cloud account credentials. The integration validates the
-login and fetches the account keys; devices are created only after the keys
-have been obtained.
+Enter your Danalock cloud account credentials. If the cloud is only reachable
+through a proxy, fill in the optional proxy fields on the same form. The
+integration validates the login and fetches the account keys; devices are
+created only after the keys have been obtained.
 
 ## Configuration
 
@@ -145,6 +147,10 @@ have been obtained.
 |---|---|
 | Username | Your Danalock cloud account (email) |
 | Password | Your Danalock cloud password (used only to log in; never stored) |
+| Proxy address | Optional host name or IP address of an HTTP proxy used for cloud access; leave empty to connect directly |
+| Proxy port | TCP port of the HTTP proxy (default 8080) |
+| Proxy username | Optional HTTP proxy username; leave empty for an unauthenticated proxy |
+| Proxy password | HTTP proxy password; stored in Home Assistant's config entry storage |
 
 - Token pairs are stored in Home Assistant's internal storage, keyed per
   config entry.
@@ -160,13 +166,21 @@ have been obtained.
 
 ### Options
 
-Open the integration's *Configure* dialog to manage the background key
-refresh:
+Open the integration's *Configure* dialog to manage the cloud connection and
+the background key refresh:
 
 | Option | Default | Range | Description |
 |---|---|---|---|
+| `proxy_host` | empty | — | Host name or IP address of an HTTP proxy. Empty disables the proxy and clears the other proxy settings. |
+| `proxy_port` | 8080 | 1–65535 | TCP port of the HTTP proxy. |
+| `proxy_username` | empty | — | Username for HTTP Basic proxy authentication. Empty means no authentication. |
+| `proxy_password` | empty | — | Password for HTTP Basic proxy authentication. Stored in the config entry options. |
 | `refresh_period_hours` | 12 | 0–720 | Interval between background key refreshes, in hours. `0` disables the background refresh. |
 | `refresh_jitter_hours` | 6 | 0–24 | Random delay of up to this many hours added to each interval. `0` disables the jitter. |
+
+The proxy also covers the unauthenticated firmware-version lookup. All cloud
+requests use the same HTTP transport, so a proxy that filters hosts must allow
+both the Danalock API and firmware service.
 
 ## Entities
 
